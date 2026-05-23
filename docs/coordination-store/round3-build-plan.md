@@ -73,3 +73,5 @@ Per R2.4/R2.3, each step additive/dormant until the last:
 
 ## Build Log (cont.)
 - **2026-05-23** — Streams 1+2 dispatched: R3.1 test city → gascity/builder (DURABLE dir, port ~28240, minimal agents); R3.2 draft benchmark PR → gascity/architect. R3.3 (dormant HQStore build) + R3.4 (migration/cut-over) created, HELD until test city ready. Experiment worktree relocated off /tmp → /home/jaword/projects/gascity-coordstore-wt. (mayor)
+
+> **Clarification (operator 2026-05-23):** /tmp is FINE to use — faster, less btrfs churn — for transient/high-churn working data. The rule is only: don't make /tmp the *sole source of truth*. Durability comes from git commits (durable in .git) / a durable copy. The earlier "never /tmp" framing above was over-strong. Test-city runtime (dolt data) may live on /tmp for speed if the SETUP is scripted/reproducible.
