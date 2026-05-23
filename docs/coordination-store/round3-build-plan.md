@@ -1,0 +1,69 @@
+# HQStore — Round-3 Build Plan & Log
+
+> **Status:** Build APPROVED (operator, 2026-05-23). Building **HQStore** (author-own,
+> in-process coordination-state store) to replace beads/Dolt for HQ. This document is the
+> canonical build plan + running log — kept current so we don't forget and can explain it
+> to others. Pairs with `discovery.md` (the *why* + requirements + the Round-2 recommendation).
+>
+> **Branch:** all work lives on `experiment/coordination-store`. **No public PRs** for the
+> migration itself until cut-over is shipped + documented. (Exception: the benchmark harness
+> may go up as a *draft* PR to show methodology — see Stream 2.)
+
+## Why this is low-risk despite being a "cut-over"
+
+HQStore lands as a **new, dormant, flag-gated backend alongside Dolt** (the R2.3 "provider
+swap" model). Almost all work ships as **additive PRs that don't change the running city's
+behavior**; the risk concentrates in a single **small, reversible cut-over flip** at the end,
+which we test on an isolated **test city** first.
+
+## Decisions (locked)
+
+| # | Decision | Date | Source |
+|---|---|---|---|
+| D-A | Build HQStore (author-own), not adopt. authorcore 9/9 @282µs; SQLite 8/9 (WAL floor + CGo); Dolt 1/9. | 2026-05-23 | R2.4 + operator |
+| D-B | Bridge fixes (FK cascades + mail auto-archive) folded into the migration import, not pre-patched on Dolt. | 2026-05-22 | operator |
+| D-C | Round-2 scope HQ-only; rig DBs evaluated separately later. | 2026-05-22 | operator |
+| D-D | Development isolated on a **separate test city on this host** (standalone-managed, own dolt port + minimal agents). Not container/VM unless insufficient. | 2026-05-23 | operator |
+| D-E | Benchmark harness exposed as a **draft** PR (methodology); no merge pressure. | 2026-05-23 | operator |
+
+## Streams
+
+### Stream 1 — Test city (the sandbox) — FIRST
+A second gc city on this host: own directory, **standalone-managed** controller (NOT the
+systemd supervisor), own dolt server on a **distinct port** (target 28240; avoid 28231 live /
+28232 the recent rogue), **minimal** agent set (enough to generate sessions/wisps/beads load),
+seeded with representative data so we can exercise migration + cut-over against realistic state.
+All risky work (shadow mode, migration, the flip) happens here; the live city is never at risk.
+Open question: exact gc multi-city mechanics (clean standalone init, port/dir isolation, a
+lightweight agent+auth setup that doesn't entangle with live).
+
+### Stream 2 — Draft benchmark PR (PR #1) — in parallel
+Put `internal/benchmarks/coordstore` (harness + adapters) + the R2.1/R2.1b results on a
+clean-building branch; open as **draft**. Shows methodology; low-risk (tooling only).
+Caveat: the harness currently builds on the architect's branch base, not `main` — needs a
+branch where it compiles.
+
+### Stream 3 — Phased HQStore build (dispatched once the test city is up)
+Per R2.4/R2.3, each step additive/dormant until the last:
+1. HQStore core (`internal/beads/hqstore_core.go`) — registered provider, NOT default.
+2. WAL (`hqstore_wal.go`) · 3. Checkpoint/recovery (`hqstore_checkpoint.go`) · 4. TTL sweeper
+   (`hqstore_ttl.go`) · 5. Lifecycle (`hqstore.go`) · 6. Tests (SIGKILL/partial-line/concurrency).
+   **Gate:** harness scores 9/9 with HQStore adapter.
+7. `gc bd-store-bridge` shim + PATH shadow (flag-gated).
+8. Migration importer (Dolt→HQStore) — folds in D-B bridge fixes.
+9. Shadow mode (parallel, diff vs Dolt, not serving).
+10. **Cut-over PR** — single provider flip; ≤60s; Dolt backup hot; 48h rollback. The only cut-over.
+
+## Documentation discipline (operator directive 2026-05-23)
+- This doc (`round3-build-plan.md`) = canonical plan + the **Build Log** below (append per milestone).
+- `discovery.md` = the requirements + recommendation (the *why*).
+- Each spike documents its work in a doc/PR description; PRs explain themselves.
+- Beads epic `ga-aec8q` + round-3 spikes = the trackable work record.
+
+## Build Log
+- **2026-05-23** — Build approved; test-city isolation chosen (D-D); plan doc created. Streams 1+2 kicking off; round-3 spikes being laid down. (mayor)
+
+## Open questions
+1. Test-city data seed: copy live HQ data, or synthetic representative data? (copy is more realistic for migration testing; synthetic is safer/cleaner.)
+2. Minimal agent set for the test city — which roles generate enough coordination-state load?
+3. Harness clean-build branch for the draft PR (rebase onto a base where it compiles).
