@@ -16,7 +16,7 @@
 | Dolt data dir | `/home/jaword/gctest/.beads/dolt` |
 | Beads prefix | `gc-` |
 | Controller | supervisor-managed (PID of machine `gc supervisor`) |
-| Live city dolt port | 28232 (`gc-management`) — never use this |
+| Live city dolt ports (avoid) | **28232** (`gc-management`) · **28231** (MCDClient rig) |
 
 ## Start / stop
 
@@ -83,8 +83,9 @@ GC_DOLT_PORT=28240 gc start /home/jaword/gctest
 # Once the state file records port=28240, subsequent starts reuse it.
 ```
 
-Live city ports to avoid: **28231** (gascity main) · **28232** (gc-management). Both are
-clear of 28533.
+Live city ports to avoid: **28231** (MCDClient rig, `/home/jaword/projects/MCDClient/.beads/dolt`) · **28232** (`gc-management`). Both are
+clear of 28533. Note: the old bd memory "gascity bd on 28231" is stale; gascity rig dolt now runs on an
+ephemeral port (~42788). 28231 was never gc-management.
 
 ## Agents
 
@@ -159,6 +160,14 @@ gc convoy --city /home/jaword/gctest create --title "test convoy" <bead-ids>
 5. **No public PR.** Operator directive 2026-05-23: all coordination-store work lives on
    `experiment/coordination-store`. Do NOT open public PRs for this city or any work in it
    until the backend approach is chosen and documented.
+
+6. **Supervisor isolation is safe.** The shared machine supervisor runs each city in its own
+   goroutine with an independent `defer recover()` handler
+   (`cmd_supervisor.go:1827-1892`). A gctest panic/crash cannot propagate to `gc-management`
+   or crash the supervisor main loop (`safeReconcile` also has its own outer `recover()`).
+   No need to switch the test city to standalone-managed before R3.4 cut-over on that basis.
+   The only remaining isolation risk is a *dolt port collision*, not a supervisor crash — 28533
+   is confirmed free of all live city ports.
 
 ## Isolation checklist
 
