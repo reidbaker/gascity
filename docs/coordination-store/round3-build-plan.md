@@ -64,9 +64,9 @@ Per R2.4/R2.3, each step additive/dormant until the last:
 - **2026-05-23** — Build approved; test-city isolation chosen (D-D); plan doc created. Streams 1+2 kicking off; round-3 spikes being laid down. (mayor)
 
 ## Open questions
-1. Test-city data seed: copy live HQ data, or synthetic representative data? (copy is more realistic for migration testing; synthetic is safer/cleaner.)
-2. Minimal agent set for the test city — which roles generate enough coordination-state load?
-3. Harness clean-build branch for the draft PR (rebase onto a base where it compiles).
+1. ~~Test-city data seed~~ **Resolved:** synthetic seed chosen (safer/cleaner; live data copy option documented in round3-test-city.md for Phase 4 cut-over). (R3.1)
+2. ~~Minimal agent set~~ **Resolved:** dog (×2) + claude (×1) + control-dispatcher (always-on). All on-demand; generates session/wisp/bead/formula entities on activation. (R3.1)
+3. Harness clean-build branch for the draft PR (rebase onto a base where it compiles). **Resolved:** PR #2524 opened. (R3.2)
 
 ## Constraints / gotchas (don't forget)
 - **`/tmp` is RAM-backed** on this host (tmpfs) — cleared on restart. ALL durable artifacts (the test city + its dolt data, docs, git worktrees, configs) MUST live on durable disk (`/home/jaword/...`), never `/tmp`. (Learned 2026-05-23: the experiment worktree was briefly created under /tmp; relocated to /home/jaword/projects/gascity-coordstore-wt. Committed git history was safe regardless — objects live in the repo's .git on disk.)
@@ -77,3 +77,4 @@ Per R2.4/R2.3, each step additive/dormant until the last:
 > **Clarification (operator 2026-05-23):** /tmp is FINE to use — faster, less btrfs churn — for transient/high-churn working data. The rule is only: don't make /tmp the *sole source of truth*. Durability comes from git commits (durable in .git) / a durable copy. The earlier "never /tmp" framing above was over-strong. Test-city runtime (dolt data) may live on /tmp for speed if the SETUP is scripted/reproducible.
 - **2026-05-23** — Stream 2 complete: draft benchmark PR opened as [PR #2524](https://github.com/gastownhall/gascity/pull/2524) (`benchmarks/coordstore-harness` branch, rebased onto main). Harness + 6-backend adapter sweep + R2.1b results doc included. Smoke suite passes on all 3 in-process backends. (gascity/architect)
 - **2026-05-23** — R3.2 DONE: draft benchmark PR opened — gastownhall/gascity#2524 (methodology + 6-backend results exposed; branch benchmarks/coordstore-harness off main). Stream 2 complete. (architect)
+- **2026-05-23** — R3.1 DONE: HQStore test city standing at `/home/jaword/gctest`. Supervisor-managed (PID 1883575), dolt port **28533** (hash of city path). Agents: dog (×2, on-demand), claude (×1, on-demand), control-dispatcher (always-on). Beads store initialized with 9 seed entities covering all coordination-state types (open/in-progress/closed beads, parent-child hierarchy, message wisp). Docs: `docs/coordination-store/round3-test-city.md`. Unblocks R3.3 (dormant HQStore build) + R3.4 (migration/cut-over). (architect)
