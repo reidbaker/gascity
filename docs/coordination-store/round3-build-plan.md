@@ -67,3 +67,9 @@ Per R2.4/R2.3, each step additive/dormant until the last:
 1. Test-city data seed: copy live HQ data, or synthetic representative data? (copy is more realistic for migration testing; synthetic is safer/cleaner.)
 2. Minimal agent set for the test city — which roles generate enough coordination-state load?
 3. Harness clean-build branch for the draft PR (rebase onto a base where it compiles).
+
+## Constraints / gotchas (don't forget)
+- **`/tmp` is RAM-backed** on this host (tmpfs) — cleared on restart. ALL durable artifacts (the test city + its dolt data, docs, git worktrees, configs) MUST live on durable disk (`/home/jaword/...`), never `/tmp`. (Learned 2026-05-23: the experiment worktree was briefly created under /tmp; relocated to /home/jaword/projects/gascity-coordstore-wt. Committed git history was safe regardless — objects live in the repo's .git on disk.)
+
+## Build Log (cont.)
+- **2026-05-23** — Streams 1+2 dispatched: R3.1 test city → gascity/builder (DURABLE dir, port ~28240, minimal agents); R3.2 draft benchmark PR → gascity/architect. R3.3 (dormant HQStore build) + R3.4 (migration/cut-over) created, HELD until test city ready. Experiment worktree relocated off /tmp → /home/jaword/projects/gascity-coordstore-wt. (mayor)
