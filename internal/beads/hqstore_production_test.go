@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -353,7 +355,10 @@ func TestHQStoreOptionAndBranchCoverage(t *testing.T) {
 
 func TestHQStoreBackgroundSnapshotErrorIsObservable(t *testing.T) {
 	dir := t.TempDir()
-	restoreSnapshotDir := makeHQSnapshotDirReadOnly(t, dir)
+	tmpPath := filepath.Join(dir, "snapshot.jsonl.gz.tmp")
+	if err := os.Mkdir(tmpPath, 0o755); err != nil {
+		t.Fatalf("mkdir temp blocker: %v", err)
+	}
 	store, err := beads.OpenHQStore(dir, beads.WithHQStoreSnapshotInterval(10*time.Millisecond))
 	if err != nil {
 		t.Fatalf("OpenHQStore: %v", err)
@@ -362,7 +367,9 @@ func TestHQStoreBackgroundSnapshotErrorIsObservable(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if err := store.LastSnapshotErr(); err != nil {
-			restoreSnapshotDir()
+			if removeErr := os.Remove(tmpPath); removeErr != nil {
+				t.Fatalf("remove temp blocker: %v", removeErr)
+			}
 			if shutdownErr := store.Shutdown(); shutdownErr != nil {
 				t.Fatalf("Shutdown: %v", shutdownErr)
 			}
@@ -370,7 +377,7 @@ func TestHQStoreBackgroundSnapshotErrorIsObservable(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	restoreSnapshotDir()
+	_ = os.Remove(tmpPath)
 	_ = store.Shutdown()
 	t.Fatal("background snapshot error was not recorded")
 }
@@ -483,11 +490,16 @@ func hqExerciseAllCounters(t *testing.T, dir string, store *beads.HQStore) {
 	if err := store.Snapshot(); err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	}
-	restoreSnapshotDir := makeHQSnapshotDirReadOnly(t, dir)
-	if err := store.Snapshot(); err == nil {
-		t.Fatal("Snapshot with read-only snapshot dir returned nil error")
+	tmpPath := filepath.Join(dir, "snapshot.jsonl.gz.tmp")
+	if err := os.Mkdir(tmpPath, 0o755); err != nil {
+		t.Fatalf("mkdir snapshot temp blocker: %v", err)
 	}
-	restoreSnapshotDir()
+	if err := store.Snapshot(); err == nil {
+		t.Fatal("Snapshot with temp path directory returned nil error")
+	}
+	if err := os.Remove(tmpPath); err != nil {
+		t.Fatalf("remove snapshot temp blocker: %v", err)
+	}
 }
 
 type hqCounterRow struct {

@@ -201,11 +201,16 @@ func hqScenarioSnapshotFailurePreservesOld(t *testing.T) {
 		t.Fatalf("initial Snapshot: %v", err)
 	}
 	volatile := mustHQCreate(t, store, beads.Bead{Title: "new"})
-	restoreSnapshotDir := makeHQSnapshotDirReadOnly(t, dir)
-	if err := store.Snapshot(); err == nil {
-		t.Fatal("Snapshot with read-only snapshot dir returned nil error")
+	tmpPath := filepath.Join(dir, "snapshot.jsonl.gz.tmp")
+	if err := os.Mkdir(tmpPath, 0o755); err != nil {
+		t.Fatalf("mkdir temp blocker: %v", err)
 	}
-	restoreSnapshotDir()
+	if err := store.Snapshot(); err == nil {
+		t.Fatal("Snapshot with temp blocker returned nil error")
+	}
+	if err := os.Remove(tmpPath); err != nil {
+		t.Fatalf("remove temp blocker: %v", err)
+	}
 	recovered := openHQForScenario(t, dir)
 	defer hqShutdown(t, recovered)
 	if _, err := recovered.Get(durable.ID); err != nil {
