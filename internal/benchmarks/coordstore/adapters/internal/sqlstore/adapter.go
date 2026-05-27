@@ -109,7 +109,7 @@ func (a *Adapter) Create(ctx context.Context, r coordstore.Record) (coordstore.R
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO ephemeral(id,title,status,type,created_at,updated_at,assignee,parent_id,expires_at)
 			 VALUES(`+a.placeholders(9)+`)`,
-			r.ID, r.Title, r.Status, r.Type, r.CreatedAt.UnixNano(), r.UpdatedAt.UnixNano(), r.Assignee, r.ParentID, expiresNs)
+			r.ID, r.Title, r.Status, r.Type, r.CreatedAt.UnixNano(), unixNanoOrZero(r.UpdatedAt), r.Assignee, r.ParentID, expiresNs)
 		if err != nil {
 			return coordstore.Record{}, fmt.Errorf("%s Create ephemeral: %w", a.dialect.Name, err)
 		}
@@ -123,7 +123,7 @@ func (a *Adapter) Create(ctx context.Context, r coordstore.Record) (coordstore.R
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO records(id,title,status,type,priority,created_at,updated_at,assignee,parent_id,description)
 			 VALUES(`+a.placeholders(10)+`)`,
-			r.ID, r.Title, r.Status, r.Type, r.Priority, r.CreatedAt.UnixNano(), r.UpdatedAt.UnixNano(), r.Assignee, r.ParentID, "")
+			r.ID, r.Title, r.Status, r.Type, r.Priority, r.CreatedAt.UnixNano(), unixNanoOrZero(r.UpdatedAt), r.Assignee, r.ParentID, "")
 		if err != nil {
 			return coordstore.Record{}, fmt.Errorf("%s Create main: %w", a.dialect.Name, err)
 		}
@@ -491,7 +491,7 @@ func (a *Adapter) PurgeTerminal(ctx context.Context, olderThan time.Duration) (i
 // PrimeScan scans open main-tier records.
 func (a *Adapter) PrimeScan(ctx context.Context) (int, error) {
 	rows, err := a.db.QueryContext(ctx,
-		"SELECT id FROM records WHERE status NOT IN ('closed','cancelled','expired')")
+		"SELECT id FROM records WHERE status NOT IN ('closed','cancelled','canceled','expired')")
 	if err != nil {
 		return 0, fmt.Errorf("%s PrimeScan: %w", a.dialect.Name, err)
 	}
@@ -575,6 +575,13 @@ func (a *Adapter) normalize(r coordstore.Record) coordstore.Record {
 		}
 	}
 	return r
+}
+
+func unixNanoOrZero(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixNano()
 }
 
 func (a *Adapter) getFrom(ctx context.Context, table, id string, ephemeral bool) (coordstore.Record, error) {

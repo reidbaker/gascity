@@ -51,7 +51,7 @@ var dialect = sqlstore.Dialect{
 		`CREATE INDEX IF NOT EXISTS idx_coord_eph_assignee ON ephemeral(assignee)`,
 		`CREATE INDEX IF NOT EXISTS idx_coord_eph_type ON ephemeral(type)`,
 		`CREATE INDEX IF NOT EXISTS idx_coord_eph_expires_at ON ephemeral(expires_at)`,
-		`CREATE INDEX IF NOT EXISTS idx_coord_eph_mailpoll ON ephemeral(type, status, assignee, id, created_at, parent_id, expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_coord_eph_mailpoll ON ephemeral(type, status, assignee, id, created_at, updated_at, parent_id, expires_at)`,
 		`CREATE TABLE IF NOT EXISTS labels (
 		    record_id VARCHAR(191) NOT NULL,
 		    label VARCHAR(191) NOT NULL,
