@@ -46,10 +46,25 @@ type Adapter struct {
 	retentionDone   chan struct{}
 	seq             atomic.Int64
 	retentionErrors atomic.Int64
+	driverName      string
+	pragmaSQL       string
+	idPrefix        string
 }
 
 // New returns an Adapter. Call Open before using it.
-func New() *Adapter { return &Adapter{} }
+func New() *Adapter { return NewWithDriver(DefaultDriverName, "", "sq") }
+
+// NewWithDriver returns an Adapter using the supplied database/sql driver,
+// optional PRAGMA block, and generated ID prefix.
+func NewWithDriver(driverName, pragmaSQL, idPrefix string) *Adapter {
+	if driverName == "" {
+		driverName = DefaultDriverName
+	}
+	if idPrefix == "" {
+		idPrefix = "sq"
+	}
+	return &Adapter{driverName: driverName, pragmaSQL: pragmaSQL, idPrefix: idPrefix}
+}
 
 // Open initializes the SQLite database at cfg.DataDir/store.db.
 func (a *Adapter) Open(ctx context.Context, cfg coordstore.Config) error {
@@ -66,15 +81,16 @@ func (a *Adapter) Open(ctx context.Context, cfg coordstore.Config) error {
 	if err != nil {
 		return err
 	}
+	driverName, pragmaSQL := a.openSettings(walAutocheckpoint)
 
 	// Write connection: single connection, serializes all mutations.
-	writeDB, err := sql.Open("sqlite", path+"?_busy_timeout=5000")
+	writeDB, err := sql.Open(driverName, path+"?_busy_timeout=5000")
 	if err != nil {
 		return fmt.Errorf("sqlite: open write db %s: %w", path, err)
 	}
 	writeDB.SetMaxOpenConns(1)
 
-	if _, err := writeDB.ExecContext(ctx, pragmas(walAutocheckpoint)); err != nil {
+	if _, err := writeDB.ExecContext(ctx, pragmaSQL); err != nil {
 		writeDB.Close() //nolint:errcheck
 		return fmt.Errorf("sqlite: set pragmas: %w", err)
 	}
@@ -90,7 +106,7 @@ func (a *Adapter) Open(ctx context.Context, cfg coordstore.Config) error {
 	// Read connection pool: WAL allows concurrent reads even during writes.
 	// Opened without mode=ro so WAL wal-index is fully shared; the Go code
 	// never issues writes through readDB — that's enforced structurally.
-	readDB, err := sql.Open("sqlite", path+"?_busy_timeout=5000")
+	readDB, err := sql.Open(driverName, path+"?_busy_timeout=5000")
 	if err != nil {
 		writeDB.Close() //nolint:errcheck
 		return fmt.Errorf("sqlite: open read db %s: %w", path, err)
@@ -177,7 +193,11 @@ func (a *Adapter) Reset(ctx context.Context) error {
 
 // nextID generates a unique record ID.
 func (a *Adapter) nextID() string {
-	return fmt.Sprintf("sq-%d", a.seq.Add(1))
+	prefix := a.idPrefix
+	if prefix == "" {
+		prefix = "sq"
+	}
+	return fmt.Sprintf("%s-%d", prefix, a.seq.Add(1))
 }
 
 func (a *Adapter) recoverSequence(ctx context.Context, db *sql.DB) error {
@@ -1065,6 +1085,32 @@ func durationConfig(extra map[string]string, key string, fallback time.Duration)
 	}
 	return value, nil
 }
+
+func (a *Adapter) openSettings(walAutocheckpoint int) (string, string) {
+	driverName := a.driverName
+	if driverName == "" {
+		driverName = DefaultDriverName
+	}
+	pragmaSQL := a.pragmaSQL
+	if pragmaSQL == "" {
+		pragmaSQL = pragmas(walAutocheckpoint)
+	}
+	return driverName, pragmaSQL
+}
+
+// DefaultDriverName is the modernc.org/sqlite database/sql driver name.
+const DefaultDriverName = "sqlite"
+
+// FullSyncPragmas are applied by the sqlite-cgo adapter for fsync-on-commit
+// durability using the production WAL checkpoint policy.
+const FullSyncPragmas = `
+PRAGMA journal_mode=WAL;
+PRAGMA synchronous=FULL;
+PRAGMA cache_size=-65536;
+PRAGMA temp_store=MEMORY;
+PRAGMA mmap_size=268435456;
+PRAGMA wal_autocheckpoint=1000;
+`
 
 // pragmas are applied once after opening the database.
 func pragmas(walAutocheckpoint int) string {

@@ -54,7 +54,7 @@ func TestSQLiteCGOPhaseBProductionDurability(t *testing.T) {
 		t.Fatalf("reset store: %v", err)
 	}
 	workload := coordstore.RealWorldWorkload
-	workload.Duration = cadence*time.Duration(kills) + cadence/2
+	workload.Duration = cadence * time.Duration(kills+2)
 	seed, err := coordstore.NewSeeder(0x1234abcd).Seed(ctx, process, workload)
 	if err != nil {
 		t.Fatalf("seed workload: %v", err)
@@ -150,13 +150,9 @@ func runPhaseBKill(ctx context.Context, process *coordstore.ChaosProcess) (phase
 		recovery = restartDur
 	}
 	ackedIDs := process.AckedIDs()
-	records, err := batchGetPhaseB(ctx, process, ackedIDs)
+	found, err := findAckedPhaseBRecords(ctx, process, ackedIDs)
 	if err != nil {
 		return phaseBKillEvent{}, err
-	}
-	found := make(map[string]struct{}, len(records))
-	for _, record := range records {
-		found[record.ID] = struct{}{}
 	}
 	var missing []string
 	for _, id := range ackedIDs {
@@ -164,6 +160,7 @@ func runPhaseBKill(ctx context.Context, process *coordstore.ChaosProcess) (phase
 			missing = append(missing, id)
 		}
 	}
+	missingCount := len(missing)
 	if len(missing) > 25 {
 		missing = missing[:25]
 	}
@@ -179,25 +176,27 @@ func runPhaseBKill(ctx context.Context, process *coordstore.ChaosProcess) (phase
 		Recovery:        recovery,
 		RecoveryNanos:   recovery.Nanoseconds(),
 		AckedIDs:        len(ackedIDs),
-		MissingIDs:      len(ackedIDs) - len(records),
+		MissingIDs:      missingCount,
 		MissingIDSample: missing,
 	}, nil
 }
 
-func batchGetPhaseB(ctx context.Context, adapter coordstore.StoreAdapter, ids []string) ([]coordstore.Record, error) {
-	records := make([]coordstore.Record, 0, len(ids))
-	for start := 0; start < len(ids); start += coordstore.TerminalPurgeBatchSize {
-		end := start + coordstore.TerminalPurgeBatchSize
-		if end > len(ids) {
-			end = len(ids)
-		}
-		batch, err := adapter.BatchGet(ctx, ids[start:end])
-		if err != nil {
-			return nil, fmt.Errorf("batch get acked ids[%d:%d]: %w", start, end, err)
-		}
-		records = append(records, batch...)
+func findAckedPhaseBRecords(ctx context.Context, adapter coordstore.StoreAdapter, ids []string) (map[string]struct{}, error) {
+	unique := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		unique[id] = struct{}{}
 	}
-	return records, nil
+	found := make(map[string]struct{}, len(unique))
+	for id := range unique {
+		if _, err := adapter.Get(ctx, id); err != nil {
+			if coordstore.IsNotFound(err) {
+				continue
+			}
+			return nil, fmt.Errorf("get acked id %q: %w", id, err)
+		}
+		found[id] = struct{}{}
+	}
+	return found, nil
 }
 
 func appendPhaseBEvent(path string, event phaseBKillEvent) error {
@@ -249,6 +248,10 @@ func runSQLiteCGOPhaseBChild(backend string) int {
 	dataDir := os.Getenv("CHAOS_SERVER_DATA_DIR")
 	if socketPath == "" || dataDir == "" {
 		fmt.Fprintf(os.Stderr, "CHAOS_SERVER_SOCKET and CHAOS_SERVER_DATA_DIR are required\n")
+		return 2
+	}
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		fmt.Fprintf(os.Stderr, "create sqlite-cgo chaos data dir: %v\n", err)
 		return 2
 	}
 	adapter := sqlitecgo.New()
