@@ -23,7 +23,7 @@ func TestRecordContentFingerprintDetectsCorruption(t *testing.T) {
 	same.Labels = []string{"a", "b"}
 	same.Metadata = map[string]string{"a": "first", "z": "last"}
 	corrupted := base
-	corrupted.Metadata = map[string]string{"a": "changed", "z": "last"}
+	corrupted.Title = "changed"
 
 	baseFingerprint, err := recordContentFingerprint(base)
 	if err != nil {

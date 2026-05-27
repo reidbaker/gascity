@@ -36,6 +36,42 @@ func TestOpenUsesProductionSQLiteSettings(t *testing.T) {
 	}
 }
 
+func TestOpenRecoversGeneratedIDSequence(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	first := NewWithDriver(DefaultDriverName, "", "scg")
+	if err := first.Open(ctx, coordstore.Config{DataDir: dir}); err != nil {
+		t.Fatalf("first open: %v", err)
+	}
+	created, err := first.Create(ctx, coordstore.Record{Title: "first", Status: "open", Type: "task"})
+	if err != nil {
+		t.Fatalf("first create: %v", err)
+	}
+	if created.ID != "scg-1" {
+		t.Fatalf("first generated ID = %q, want scg-1", created.ID)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("first close: %v", err)
+	}
+
+	second := NewWithDriver(DefaultDriverName, "", "scg")
+	if err := second.Open(ctx, coordstore.Config{DataDir: dir}); err != nil {
+		t.Fatalf("second open: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := second.Close(); err != nil {
+			t.Fatalf("second close: %v", err)
+		}
+	})
+	next, err := second.Create(ctx, coordstore.Record{Title: "second", Status: "open", Type: "task"})
+	if err != nil {
+		t.Fatalf("second create: %v", err)
+	}
+	if next.ID != "scg-2" {
+		t.Fatalf("next generated ID = %q, want scg-2", next.ID)
+	}
+}
+
 func TestPoolEightConcurrentAccessHasNoErrors(t *testing.T) {
 	ctx := context.Background()
 	a := openTestAdapter(ctx, t, coordstore.Config{DataDir: t.TempDir()})

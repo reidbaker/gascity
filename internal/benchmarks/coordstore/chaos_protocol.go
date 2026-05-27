@@ -2,12 +2,15 @@ package coordstore
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -27,9 +30,10 @@ type ChaosResponse struct {
 
 // AckedWrite records a write acknowledged by the chaos child.
 type AckedWrite struct {
-	AckedAt time.Time `json:"acked_at"`
-	Method  string    `json:"method"`
-	ID      string    `json:"id"`
+	AckedAt     time.Time `json:"acked_at"`
+	Method      string    `json:"method"`
+	ID          string    `json:"id"`
+	Fingerprint string    `json:"fingerprint"`
 }
 
 // ChaosClientConfig configures a Unix-socket chaos client.
@@ -46,6 +50,7 @@ type ChaosClient struct {
 	mu          sync.Mutex
 	lastAckTime time.Time
 	ackedIDs    []string
+	ackedHashes map[string]string
 }
 
 // NewChaosClient returns a StoreAdapter client backed by a Unix socket.
@@ -67,12 +72,31 @@ func (c *ChaosClient) AckedIDs() []string {
 	return append([]string(nil), c.ackedIDs...)
 }
 
+// AckedFingerprints returns the latest expected content fingerprint per
+// acknowledged record ID.
+func (c *ChaosClient) AckedFingerprints() map[string]string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	out := make(map[string]string, len(c.ackedHashes))
+	for id, fingerprint := range c.ackedHashes {
+		out[id] = fingerprint
+	}
+	return out
+}
+
+// CheckAckedContent verifies that acknowledged records are present and match
+// their latest acknowledged content fingerprint.
+func (c *ChaosClient) CheckAckedContent(ctx context.Context) (AckContentCheck, error) {
+	return checkAckedRecordContent(ctx, c, c.AckedIDs(), c.AckedFingerprints())
+}
+
 // ResetAckLedger clears acknowledged write state and switches ledger output.
 func (c *ChaosClient) ResetAckLedger(path string) error {
 	c.mu.Lock()
 	c.ackedWritesPath = path
 	c.lastAckTime = time.Time{}
 	c.ackedIDs = nil
+	c.ackedHashes = nil
 	c.mu.Unlock()
 	if path == "" {
 		return nil
@@ -103,7 +127,7 @@ func (c *ChaosClient) Create(ctx context.Context, r Record) (Record, error) {
 	if err := c.call(ctx, "Create", chaosCreateArgs{Record: r}, &created); err != nil {
 		return Record{}, err
 	}
-	if err := c.recordAck("Create", created.ID); err != nil {
+	if err := c.recordAck("Create", created); err != nil {
 		return Record{}, err
 	}
 	return created, nil
@@ -123,7 +147,11 @@ func (c *ChaosClient) Update(ctx context.Context, id string, u Update) error {
 	if err := c.callNoResult(ctx, "Update", chaosUpdateArgs{ID: id, Update: u}); err != nil {
 		return err
 	}
-	return c.recordAck("Update", id)
+	updated, err := c.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	return c.recordAck("Update", updated)
 }
 
 // Delete forwards Delete.
@@ -151,7 +179,14 @@ func (c *ChaosClient) BatchGet(ctx context.Context, ids []string) ([]Record, err
 
 // SetMetadataBatch forwards SetMetadataBatch.
 func (c *ChaosClient) SetMetadataBatch(ctx context.Context, id string, kvs map[string]string) error {
-	return c.callNoResult(ctx, "SetMetadataBatch", chaosMetadataArgs{ID: id, Metadata: kvs})
+	if err := c.callNoResult(ctx, "SetMetadataBatch", chaosMetadataArgs{ID: id, Metadata: kvs}); err != nil {
+		return err
+	}
+	updated, err := c.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	return c.recordAck("SetMetadataBatch", updated)
 }
 
 // Ready forwards Ready.
@@ -269,12 +304,16 @@ func (c *ChaosClient) call(ctx context.Context, method string, args any, out any
 	return nil
 }
 
-func (c *ChaosClient) recordAck(method, id string) error {
-	if id == "" {
+func (c *ChaosClient) recordAck(method string, record Record) error {
+	if record.ID == "" {
 		return fmt.Errorf("chaos ack %s missing id", method)
 	}
+	fingerprint, err := recordContentFingerprint(record)
+	if err != nil {
+		return fmt.Errorf("chaos ack %s fingerprint %q: %w", method, record.ID, err)
+	}
 	ackedAt := time.Now().UTC()
-	entry := AckedWrite{AckedAt: ackedAt, Method: method, ID: id}
+	entry := AckedWrite{AckedAt: ackedAt, Method: method, ID: record.ID, Fingerprint: fingerprint}
 	if c.ackedWritesPath != "" {
 		if err := os.MkdirAll(filepath.Dir(c.ackedWritesPath), 0o755); err != nil {
 			return fmt.Errorf("creating acked-writes dir: %w", err)
@@ -303,9 +342,105 @@ func (c *ChaosClient) recordAck(method, id string) error {
 	}
 	c.mu.Lock()
 	c.lastAckTime = ackedAt
-	c.ackedIDs = append(c.ackedIDs, id)
+	c.ackedIDs = append(c.ackedIDs, record.ID)
+	if c.ackedHashes == nil {
+		c.ackedHashes = make(map[string]string)
+	}
+	c.ackedHashes[record.ID] = fingerprint
 	c.mu.Unlock()
 	return nil
+}
+
+type recordGetter interface {
+	Get(context.Context, string) (Record, error)
+}
+
+// AckContentCheck summarizes presence and content verification for acknowledged
+// records.
+type AckContentCheck struct {
+	Found     map[string]struct{}
+	Missing   []string
+	Corrupted []string
+}
+
+func checkAckedRecordContent(ctx context.Context, getter recordGetter, ids []string, expected map[string]string) (AckContentCheck, error) {
+	result := AckContentCheck{Found: make(map[string]struct{}, len(expected))}
+	seenMissing := make(map[string]struct{})
+	seenCorrupted := make(map[string]struct{})
+	for _, id := range ids {
+		expectedFingerprint, ok := expected[id]
+		if !ok {
+			return AckContentCheck{}, fmt.Errorf("missing expected fingerprint for acked id %q", id)
+		}
+		record, err := getter.Get(ctx, id)
+		if err != nil {
+			if IsNotFound(err) {
+				if _, seen := seenMissing[id]; !seen {
+					result.Missing = append(result.Missing, id)
+					seenMissing[id] = struct{}{}
+				}
+				continue
+			}
+			return AckContentCheck{}, fmt.Errorf("get acked id %q: %w", id, err)
+		}
+		result.Found[id] = struct{}{}
+		actualFingerprint, err := recordContentFingerprint(record)
+		if err != nil {
+			return AckContentCheck{}, fmt.Errorf("fingerprint acked id %q: %w", id, err)
+		}
+		if actualFingerprint != expectedFingerprint {
+			if _, seen := seenCorrupted[id]; !seen {
+				result.Corrupted = append(result.Corrupted, id)
+				seenCorrupted[id] = struct{}{}
+			}
+		}
+	}
+	return result, nil
+}
+
+func recordContentFingerprint(record Record) (string, error) {
+	labels := append([]string(nil), record.Labels...)
+	sort.Strings(labels)
+	// The chaos workload mutates status and metadata concurrently on the same records.
+	// Fingerprint the stable record envelope so content checks catch wrong-row
+	// or partial-row corruption without false positives from later legitimate
+	// post-restart updates racing an earlier ack.
+	snapshot := struct {
+		ID        string   `json:"id"`
+		Title     string   `json:"title"`
+		Type      string   `json:"type"`
+		Priority  int      `json:"priority"`
+		CreatedAt int64    `json:"created_at"`
+		Assignee  string   `json:"assignee"`
+		ParentID  string   `json:"parent_id"`
+		Labels    []string `json:"labels,omitempty"`
+		Ephemeral bool     `json:"ephemeral"`
+		ExpiresAt int64    `json:"expires_at"`
+	}{
+		ID:        record.ID,
+		Title:     record.Title,
+		Type:      record.Type,
+		Priority:  record.Priority,
+		CreatedAt: unixNanoOrZero(record.CreatedAt),
+		Assignee:  record.Assignee,
+		ParentID:  record.ParentID,
+		Labels:    labels,
+		Ephemeral: record.Ephemeral,
+		ExpiresAt: unixNanoOrZero(record.ExpiresAt),
+	}
+	data, err := json.Marshal(snapshot)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func unixNanoOrZero(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixNano()
 }
 
 type chaosCreateArgs struct {

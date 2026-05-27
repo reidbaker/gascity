@@ -89,7 +89,7 @@ func TestSQLiteCGOPhaseBProductionDurability(t *testing.T) {
 			cancel()
 			t.Fatalf("write kill event: %v", err)
 		}
-		t.Logf("kill %d/%d: acked=%d missing=%d recovery=%s", i+1, kills, event.AckedIDs, event.MissingIDs, event.Recovery)
+		t.Logf("kill %d/%d: acked=%d missing=%d corrupted=%d recovery=%s", i+1, kills, event.AckedIDs, event.MissingIDs, event.CorruptedIDs, event.Recovery)
 	}
 	cancel()
 	<-scoreCh
@@ -102,9 +102,12 @@ func TestSQLiteCGOPhaseBProductionDurability(t *testing.T) {
 		t.Fatalf("write phase-b summary: %v", err)
 	}
 	t.Logf("phase-b artifacts: %s", resultsDir)
-	t.Logf("phase-b summary: kills=%d acked=%d missing=%d loss_rate=%.6f", report.KillEvents, report.AckedWrites, report.MissingIDs, report.LossRate)
+	t.Logf("phase-b summary: kills=%d acked=%d missing=%d corrupted=%d loss_rate=%.6f corruption_rate=%.6f", report.KillEvents, report.AckedWrites, report.MissingIDs, report.CorruptedIDs, report.LossRate, report.CorruptionRate)
 	if report.LossRate > 0.001 {
 		t.Fatalf("SQLite-CGo Phase B loss rate %.6f exceeds 0.1%%", report.LossRate)
+	}
+	if report.CorruptionRate > 0 {
+		t.Fatalf("SQLite-CGo Phase B corruption rate %.6f exceeds 0", report.CorruptionRate)
 	}
 }
 
@@ -118,6 +121,8 @@ type phaseBKillEvent struct {
 	AckedIDs        int           `json:"acked_ids"`
 	MissingIDs      int           `json:"missing_ids"`
 	MissingIDSample []string      `json:"missing_id_sample,omitempty"`
+	CorruptedIDs    int           `json:"corrupted_ids"`
+	CorruptedSample []string      `json:"corrupted_sample,omitempty"`
 }
 
 type phaseBReport struct {
@@ -128,6 +133,8 @@ type phaseBReport struct {
 	AckedWrites      int     `json:"acked_writes"`
 	MissingIDs       int     `json:"missing_ids"`
 	LossRate         float64 `json:"loss_rate"`
+	CorruptedIDs     int     `json:"corrupted_ids"`
+	CorruptionRate   float64 `json:"corruption_rate"`
 	MaxRecoveryNanos int64   `json:"max_recovery_nanos"`
 }
 
@@ -150,19 +157,24 @@ func runPhaseBKill(ctx context.Context, process *coordstore.ChaosProcess) (phase
 		recovery = restartDur
 	}
 	ackedIDs := process.AckedIDs()
-	found, err := findAckedPhaseBRecords(ctx, process, ackedIDs)
+	contentCheck, err := process.CheckAckedContent(ctx)
 	if err != nil {
 		return phaseBKillEvent{}, err
 	}
 	var missing []string
 	for _, id := range ackedIDs {
-		if _, ok := found[id]; !ok {
+		if _, ok := contentCheck.Found[id]; !ok {
 			missing = append(missing, id)
 		}
 	}
 	missingCount := len(missing)
 	if len(missing) > 25 {
 		missing = missing[:25]
+	}
+	corrupted := contentCheck.Corrupted
+	corruptedCount := len(corrupted)
+	if len(corrupted) > 25 {
+		corrupted = corrupted[:25]
 	}
 	lossWindow := time.Duration(0)
 	if !lastAck.IsZero() {
@@ -178,25 +190,9 @@ func runPhaseBKill(ctx context.Context, process *coordstore.ChaosProcess) (phase
 		AckedIDs:        len(ackedIDs),
 		MissingIDs:      missingCount,
 		MissingIDSample: missing,
+		CorruptedIDs:    corruptedCount,
+		CorruptedSample: corrupted,
 	}, nil
-}
-
-func findAckedPhaseBRecords(ctx context.Context, adapter coordstore.StoreAdapter, ids []string) (map[string]struct{}, error) {
-	unique := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		unique[id] = struct{}{}
-	}
-	found := make(map[string]struct{}, len(unique))
-	for id := range unique {
-		if _, err := adapter.Get(ctx, id); err != nil {
-			if coordstore.IsNotFound(err) {
-				continue
-			}
-			return nil, fmt.Errorf("get acked id %q: %w", id, err)
-		}
-		found[id] = struct{}{}
-	}
-	return found, nil
 }
 
 func appendPhaseBEvent(path string, event phaseBKillEvent) error {
@@ -221,12 +217,14 @@ func summarizePhaseB(events []phaseBKillEvent) phaseBReport {
 	for _, event := range events {
 		report.AckedWrites += event.AckedIDs
 		report.MissingIDs += event.MissingIDs
+		report.CorruptedIDs += event.CorruptedIDs
 		if event.RecoveryNanos > report.MaxRecoveryNanos {
 			report.MaxRecoveryNanos = event.RecoveryNanos
 		}
 	}
 	if report.AckedWrites > 0 {
 		report.LossRate = float64(report.MissingIDs) / float64(report.AckedWrites)
+		report.CorruptionRate = float64(report.CorruptedIDs) / float64(report.AckedWrites)
 	}
 	return report
 }
