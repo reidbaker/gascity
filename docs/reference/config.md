@@ -252,7 +252,7 @@ BeadsConfig holds bead store settings.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `provider` | string |  | `bd` | Provider selects the bead store backend: "bd" (default), "file", or "exec:&lt;script&gt;" for a user-supplied script. |
+| `provider` | string |  | `bd` | Provider selects the bead store backend: "bd" (default), "file", "coordstore" (SQLite-CGo, opt-in), or "exec:&lt;script&gt;" for a user-supplied script. |
 
 ## ChatSessionsConfig
 
