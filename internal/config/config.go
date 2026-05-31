@@ -1175,8 +1175,8 @@ func (w *Workspace) SetLegacyDefaultRigIncludes(includes []string) {
 // BeadsConfig holds bead store settings.
 type BeadsConfig struct {
 	// Provider selects the bead store backend: "bd" (default), "file",
-	// "coordstore" (SQLite-CGo, opt-in), or "exec:<script>" for a
-	// user-supplied script.
+	// "sqlite" (SQLite-CGo, opt-in; also accepts the "sqlite-cgo" alias),
+	// or "exec:<script>" for a user-supplied script.
 	Provider string `toml:"provider,omitempty" jsonschema:"default=bd"`
 }
 

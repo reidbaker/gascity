@@ -1189,7 +1189,7 @@ func canonicalCoordStoreDir(scopeRoot string) (string, error) {
 
 func providerIsCoordStore(provider string) bool {
 	switch strings.TrimSpace(provider) {
-	case "coordstore", "sqlite-cgo", "sqlite":
+	case "sqlite", "sqlite-cgo":
 		return true
 	default:
 		return false
