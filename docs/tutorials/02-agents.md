@@ -162,8 +162,8 @@ tutorial](/tutorials/03-sessions).
 You've defined agents with custom prompts, interacted with them through
 sessions and configured different agents with different providers. From here:
 
-- **[Sessions](/tutorials/03-sessions)** — session lifecycle, sleep/wake,
+- **[Sessions](03-sessions.md)** — session lifecycle, sleep/wake,
   suspension, named sessions
-- **[Formulas](/tutorials/05-formulas)** — multi-step workflow templates with
+- **[Formulas](05-formulas.md)** — multi-step workflow templates with
   dependencies and variables
-- **[Beads](/tutorials/06-beads)** — the work tracking system underneath it all
+- **[Beads](06-beads.md)** — the work tracking system underneath it all
