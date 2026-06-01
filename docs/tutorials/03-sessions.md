@@ -4,7 +4,7 @@ sidebarTitle: 03 - Sessions
 description: See agent output, interact directly with agents, and learn about polecats and crew.
 ---
 
-In [Tutorial 02](/tutorials/02-agents), you worked with agents to produce work,
+In [Tutorial 02](02-agents.md), you worked with agents to produce work,
 which created sessions with agents that we haven't seen yet. In this tutorial,
 you'll see and talk with agents via sessions as well as see how agents talk to
 each other. You'll also learn the difference between "polecats" (agents spun up
