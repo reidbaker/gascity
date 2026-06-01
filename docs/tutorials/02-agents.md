@@ -68,7 +68,7 @@ and execute it.
 ```
 
 The `gc prime` command tells you the prompt an agent is running with. In
-[tutorial 01](/tutorials/01-cities-and-rigs) we learned that slinging work to
+[tutorial 01](01-cities-and-rigs.md) we learned that slinging work to
 an agent created a bead; the agent's prompt is what tells it how to pick up
 and act on that work. Pass an agent name to inspect a specific agent:
 `gc prime mayor` would print the mayor's prompt;
