@@ -2495,6 +2495,13 @@ func (cr *CityRuntime) controlDispatcherTick(ctx context.Context) {
 		poolDesired = make(map[string]int)
 	}
 	mergeNamedSessionDemand(poolDesired, wfcResult.NamedSessionDemand, filteredCfg)
+	awakeAssignedWorkBeads := filterAssignedWorkBeadsForSessionWake(
+		filteredCfg,
+		cr.cityPath,
+		open,
+		wfcResult.AssignedWorkBeads,
+		wfcResult.AssignedWorkStoreRefs,
+	)
 	reconcileSessionBeadsAtPathWithNamedDemand(
 		ctx,
 		cr.cityPath,
@@ -2505,14 +2512,14 @@ func (cr *CityRuntime) controlDispatcherTick(ctx context.Context) {
 		cr.sp,
 		store,
 		cr.dops,
-		nil,
+		awakeAssignedWorkBeads,
 		cr.rigBeadStores(),
-		nil, // control-dispatcher ticks only need ownership continuity, not main-tick assigned/ready snapshots
+		nil, // no ready-wait snapshot on control-dispatcher-only ticks
 		cr.sessionDrains,
 		poolDesired,
 		wfcResult.NamedSessionDemand,
-		false, // storeQueryPartial: config-change path doesn't query work beads
-		nil,   // workSet: not computed for config-change reconcile
+		wfcResult.snapshotQueryPartial(),
+		nil, // workSet: not computed for config-change reconcile
 		cr.cityName,
 		cr.it,
 		clock.Real{},

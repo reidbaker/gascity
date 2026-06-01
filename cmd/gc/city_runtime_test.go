@@ -1038,6 +1038,112 @@ func TestCityRuntimeControlDispatcherPreflightsManagedDoltBeforeSessionSnapshot(
 	}
 }
 
+func TestCityRuntimeControlDispatcherTickWakesAsleepOnDemandDispatcherForAssignedControlWork(t *testing.T) {
+	tests := []struct {
+		name     string
+		assignee func(beads.Bead, string) string
+	}{
+		{
+			name: "session name assignee",
+			assignee: func(_ beads.Bead, sessionName string) string {
+				return sessionName
+			},
+		},
+		{
+			name: "canonical bead assignee",
+			assignee: func(sessionBead beads.Bead, _ string) string {
+				return sessionBead.ID
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cityPath := t.TempDir()
+			rigDir := filepath.Join(cityPath, "gascity")
+			if err := os.MkdirAll(rigDir, 0o755); err != nil {
+				t.Fatalf("create rig dir: %v", err)
+			}
+
+			cfg := &config.City{
+				Daemon:    config.DaemonConfig{FormulaV2: true},
+				Workspace: config.Workspace{Name: "maintainer-city"},
+				Rigs:      []config.Rig{{Name: "gascity", Path: rigDir}},
+			}
+			config.InjectImplicitAgents(cfg)
+
+			identity := "gascity/control-dispatcher"
+			sessionName := config.NamedSessionRuntimeName(cfg.EffectiveCityName(), cfg.Workspace, identity)
+			cityStore := beads.NewMemStore()
+			rigStore := beads.NewMemStore()
+			sessionBead, err := cityStore.Create(beads.Bead{
+				Title:  identity,
+				Type:   sessionBeadType,
+				Labels: []string{sessionBeadLabel},
+				Metadata: map[string]string{
+					"session_name":               sessionName,
+					"alias":                      identity,
+					"template":                   identity,
+					"state":                      "asleep",
+					"generation":                 "1",
+					"instance_token":             "canonical-token",
+					namedSessionMetadataKey:      "true",
+					namedSessionIdentityMetadata: identity,
+					namedSessionModeMetadata:     "on_demand",
+				},
+			})
+			if err != nil {
+				t.Fatalf("create control-dispatcher session: %v", err)
+			}
+			if _, err := rigStore.Create(beads.Bead{
+				Title:    "Finalize scope for review",
+				Type:     "task",
+				Status:   "open",
+				Assignee: tc.assignee(sessionBead, sessionName),
+				Metadata: map[string]string{
+					"gc.kind":                "scope-check",
+					"gc.root_bead_id":        "ga-root",
+					"gc.execution_routed_to": "gascity/reviewer",
+					"gc.root_store_ref":      "rig:gascity",
+				},
+			}); err != nil {
+				t.Fatalf("create assigned control work: %v", err)
+			}
+
+			sp := runtime.NewFake()
+			var stderr bytes.Buffer
+			cr := &CityRuntime{
+				cityPath:            cityPath,
+				cityName:            cfg.EffectiveCityName(),
+				cfg:                 cfg,
+				sp:                  sp,
+				dops:                newDrainOps(sp),
+				standaloneCityStore: cityStore,
+				standaloneRigStores: map[string]beads.Store{"gascity": rigStore},
+				sessionDrains:       newDrainTracker(),
+				rec:                 events.Discard,
+				stdout:              io.Discard,
+				stderr:              &stderr,
+				managedDoltHealth: func(string) error {
+					return nil
+				},
+				managedDoltOwned: func(string) (bool, error) {
+					return false, nil
+				},
+				managedDoltPort: func(string) string {
+					return ""
+				},
+			}
+
+			cr.controlDispatcherTick(context.Background())
+
+			if !sp.IsRunning(sessionName) {
+				t.Fatalf("control-dispatcher session %q was not woken for assigned control work; stderr:\n%s", sessionName, stderr.String())
+			}
+		})
+	}
+}
+
 func TestNewCityRuntimePreflightsManagedDoltPublicationBeforeStartupStoreWork(t *testing.T) {
 	disableManagedDoltRecoveryForTest(t)
 	t.Setenv("GC_BEADS", "bd")

@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- On-demand control-dispatcher sessions now wake from assigned graph control
+  work during control-dispatcher-only ticks, so the implicit dispatcher can
+  follow normal idle-sleep policy without stalling newly ready workflow
+  control beads.
 - `gc dolt sync` now emits per-mode diagnostics on push failure instead of a
   generic "push failed": a TIMEOUT message naming the ceiling and
   `GC_DOLT_SYNC_PUSH_TIMEOUT_SECS` on exit 124, the underlying exit code on
