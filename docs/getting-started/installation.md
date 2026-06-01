@@ -236,7 +236,7 @@ cd ~/my-city
 
 `gc init` registers the city with the supervisor, which then starts it. By the
 time the command returns, the city is running.
-See the [Quickstart](/getting-started/quickstart) for a complete walkthrough.
+See the [Quickstart](/getting-started/quickstart.md) for a complete walkthrough.
 
 Gas City ships a JSONL archive that snapshots every bead database for
 disaster recovery. By default it runs in local-only mode and keeps commits
