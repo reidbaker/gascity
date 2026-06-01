@@ -6,7 +6,7 @@ description: Create a city, add a rig, and route work in a few minutes.
 <Note>
 This guide assumes you have already installed Gas City and its
 prerequisites. If you haven't, start with the
-[Installation](/getting-started/installation) page.
+[Installation](installation.md) page.
 </Note>
 
 You will need `gc`, `tmux`, `git`, `jq`, and a beads provider (`bd` + `dolt`
