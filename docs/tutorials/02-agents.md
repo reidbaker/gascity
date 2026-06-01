@@ -4,7 +4,7 @@ sidebarTitle: 02 - Agents
 description: Define agents and use them to execute work.
 ---
 
-In [Tutorial 01](/tutorials/01-cities-and-rigs), you created a city, slung work to an
+In [Tutorial 01](01-cities-and-rigs.md), you created a city, slung work to an
 implicit agent, and added a rig. The implicit agents (`claude`, `codex`, etc.)
 are convenient, but they have no custom prompt — they're just the raw provider.
 In this tutorial, you'll define your own agents with specific roles and use them
